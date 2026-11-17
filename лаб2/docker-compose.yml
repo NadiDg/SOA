@@ -1,0 +1,98 @@
+services:
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: notebook-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - notebook-net
+
+  discovery:
+    build: ./services/discovery
+    environment:
+      SERVICE_NAME: discovery-service
+      DISCOVERY_TTL: "45"
+    ports:
+      - "8500:8000"
+    networks:
+      - notebook-net
+
+  auth:
+    build: ./services/auth
+    environment:
+      SERVICE_NAME: auth-service
+      JWT_SECRET: soa-lab2-secret
+      DISCOVERY_URL: http://discovery:8000
+      SERVICE_BASE_URL: http://auth:8000
+    depends_on:
+      - discovery
+    networks:
+      - notebook-net
+
+  notebook:
+    build: ./services/notebook
+    environment:
+      SERVICE_NAME: notebook-service
+      AUTH_URL: http://auth:8000
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      EVENTS_EXCHANGE: notebook.events
+      NOTE_EVENTS_KEY: note.changed
+      DISCOVERY_URL: http://discovery:8000
+      SERVICE_BASE_URL: http://notebook:8000
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      auth:
+        condition: service_started
+      discovery:
+        condition: service_started
+    networks:
+      - notebook-net
+
+  tag:
+    build: ./services/tag
+    environment:
+      SERVICE_NAME: tag-service
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      EVENTS_EXCHANGE: notebook.events
+      NOTE_EVENTS_KEY: note.changed
+      TAG_QUEUE: tag-service.note-events
+      DISCOVERY_URL: http://discovery:8000
+      SERVICE_BASE_URL: http://tag:8000
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      discovery:
+        condition: service_started
+    networks:
+      - notebook-net
+
+  gateway:
+    build: ./services/gateway
+    ports:
+      - "8080:8000"
+    environment:
+      SERVICE_NAME: gateway-service
+      AUTH_URL: http://auth:8000
+      NOTEBOOK_URL: http://notebook:8000
+      TAG_URL: http://tag:8000
+      DISCOVERY_URL: http://discovery:8000
+      SERVICE_BASE_URL: http://gateway:8000
+    depends_on:
+      - auth
+      - notebook
+      - tag
+      - discovery
+    networks:
+      - notebook-net
+
+networks:
+  notebook-net:
+    name: notebook-net
+    driver: bridge
