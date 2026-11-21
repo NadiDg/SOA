@@ -1,0 +1,38 @@
+groups:
+  - name: soa-lab6
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 15s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "Prometheus target {{ $labels.instance }} has been down for >15s."
+
+      - alert: HighLatencyP99
+        expr: histogram_quantile(0.99, sum(rate(soa_http_request_duration_seconds_bucket[1m])) by (le, service, role)) > 0.8
+        for: 20s
+        labels:
+          severity: warning
+        annotations:
+          summary: "High p99 latency on {{ $labels.service }}"
+          description: "p99 latency > 0.8s for {{ $labels.service }} (role={{ $labels.role }})."
+
+      - alert: ReplicationLagHigh
+        expr: soa_replication_lag_seconds > 10
+        for: 10s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Replication lag high on {{ $labels.service }}"
+          description: "soa_replication_lag_seconds={{ $value }} exceeds 10s."
+
+      - alert: HighErrorRate
+        expr: sum(rate(soa_http_errors_total[1m])) by (service) / clamp_min(sum(rate(soa_http_requests_total[1m])) by (service), 0.001) > 0.2
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate on {{ $labels.service }}"
+          description: "Error ratio > 20% over the last minute."

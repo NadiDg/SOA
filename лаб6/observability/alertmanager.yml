@@ -1,0 +1,16 @@
+route:
+  receiver: n8n-webhook
+  group_by: ["alertname", "service"]
+  group_wait: 5s
+  group_interval: 30s
+  repeat_interval: 5m
+
+receivers:
+  - name: n8n-webhook
+    webhook_configs:
+      - url: http://n8n:5678/webhook/soa-alerts
+        send_resolved: true
+      - url: http://incident-sink:8000/alerts/alertmanager
+        send_resolved: true
+
+inhibit_rules: []

@@ -1,0 +1,258 @@
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: notebook-keycloak-lab6
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HTTP_RELATIVE_PATH: /
+      KC_HOSTNAME: localhost
+      KC_HOSTNAME_PORT: 8081
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./keycloak/realm-notebook.json:/opt/keycloak/data/import/realm-notebook.json:ro
+    networks:
+      - notebook-net-lab6
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: notebook-rabbitmq-lab6
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - notebook-net-lab6
+
+  discovery:
+    build: ./services/discovery
+    container_name: notebook-discovery-lab6
+    environment:
+      SERVICE_NAME: discovery-service
+      OBS_ROLE: worker
+      DISCOVERY_TTL: "45"
+    ports:
+      - "8500:8000"
+    networks:
+      - notebook-net-lab6
+
+  auth:
+    build: ./services/auth
+    container_name: notebook-auth-lab6
+    environment:
+      SERVICE_NAME: auth-service
+      OBS_ROLE: worker
+      JWT_SECRET: soa-lab6-secret
+      DISCOVERY_URL: http://discovery:8000
+      SERVICE_BASE_URL: http://auth:8000
+    depends_on:
+      - discovery
+    networks:
+      - notebook-net-lab6
+
+  notebook:
+    build: ./services/notebook
+    container_name: notebook-notebook-lab6
+    environment:
+      SERVICE_NAME: notebook-service
+      OBS_ROLE: shard
+      AUTH_URL: http://auth:8000
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      EVENTS_EXCHANGE: notebook.events
+      NOTE_EVENTS_KEY: note.changed
+      NOTE_DLQ: notebook.note-events.dlq
+      NOTE_DLX: notebook.events.dlx
+      NOTE_DLQ_KEY: note.changed.dlq
+      NOTE_SUCCESS_QUEUE: notebook.saga-success
+      SAGA_TIMEOUT_SEC: "8"
+      DISCOVERY_URL: http://discovery:8000
+      SERVICE_BASE_URL: http://notebook:8000
+      DB_PATH: /data/notebook.db
+    volumes:
+      - ./data/notebook:/data
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      auth:
+        condition: service_started
+      discovery:
+        condition: service_started
+    networks:
+      - notebook-net-lab6
+
+  tag:
+    build: ./services/tag
+    container_name: notebook-tag-lab6
+    environment:
+      SERVICE_NAME: tag-service
+      OBS_ROLE: shard
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      EVENTS_EXCHANGE: notebook.events
+      NOTE_EVENTS_KEY: note.changed
+      TAG_QUEUE: tag-service.note-events.v6
+      NOTE_DLQ: notebook.note-events.dlq
+      NOTE_DLX: notebook.events.dlx
+      NOTE_DLQ_KEY: note.changed.dlq
+      FORCE_CONSUMER_FAIL: "false"
+      DISCOVERY_URL: http://discovery:8000
+      SERVICE_BASE_URL: http://tag:8000
+      DB_PATH: /data/tag.db
+    volumes:
+      - ./data/tag:/data
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      discovery:
+        condition: service_started
+    networks:
+      - notebook-net-lab6
+
+  gateway:
+    build: ./services/gateway
+    container_name: notebook-gateway-lab6
+    ports:
+      - "8080:8000"
+    environment:
+      SERVICE_NAME: gateway-service
+      OBS_ROLE: coordinator
+      AUTH_URL: http://auth:8000
+      NOTEBOOK_URL: http://notebook:8000
+      TAG_URL: http://tag:8000
+      DISCOVERY_URL: http://discovery:8000
+      SERVICE_BASE_URL: http://gateway:8000
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_PUBLIC_URL: http://localhost:8081
+      KEYCLOAK_REALM: notebook
+      KEYCLOAK_CLIENT_ID: notebook-gateway
+      OAUTH_REDIRECT_URI: http://localhost:8080/oauth/callback
+      CORS_ORIGINS: https://cad.kpi.ua,http://cad.kpi.ua,https://www.cad.kpi.ua,http://localhost:8080,http://127.0.0.1:8080
+    depends_on:
+      - auth
+      - notebook
+      - tag
+      - discovery
+      - keycloak
+    networks:
+      - notebook-net-lab6
+
+  incident-sink:
+    build: ./services/incident_sink
+    container_name: notebook-incident-lab6
+    ports:
+      - "8090:8000"
+    networks:
+      - notebook-net-lab6
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: notebook-prometheus-lab6
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - gateway
+      - notebook
+      - tag
+      - auth
+      - discovery
+      - alertmanager
+    networks:
+      - notebook-net-lab6
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: notebook-alertmanager-lab6
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ./observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "9093:9093"
+    depends_on:
+      - incident-sink
+      - n8n
+    networks:
+      - notebook-net-lab6
+
+  loki:
+    image: grafana/loki:3.1.1
+    container_name: notebook-loki-lab6
+    command: ["-config.file=/etc/loki/loki-config.yml"]
+    volumes:
+      - ./observability/loki-config.yml:/etc/loki/loki-config.yml:ro
+    ports:
+      - "3100:3100"
+    networks:
+      - notebook-net-lab6
+
+  promtail:
+    image: grafana/promtail:3.1.1
+    container_name: notebook-promtail-lab6
+    command: ["-config.file=/etc/promtail/promtail-config.yml"]
+    volumes:
+      - ./observability/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+    networks:
+      - notebook-net-lab6
+
+  grafana:
+    image: grafana/grafana:11.2.2
+    container_name: notebook-grafana-lab6
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - loki
+    networks:
+      - notebook-net-lab6
+
+  n8n:
+    image: n8nio/n8n:1.64.3
+    container_name: notebook-n8n-lab6
+    environment:
+      N8N_HOST: localhost
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      WEBHOOK_URL: http://n8n:5678/
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+      N8N_ENCRYPTION_KEY: soa-lab6-n8n-key-32chars!!
+    ports:
+      - "5678:5678"
+    volumes:
+      - ./data/n8n:/home/node/.n8n
+      - ./n8n/soa-alerts-workflow.json:/data/soa-alerts-workflow.json:ro
+    networks:
+      - notebook-net-lab6
+
+networks:
+  notebook-net-lab6:
+    name: notebook-net-lab6
+    driver: bridge

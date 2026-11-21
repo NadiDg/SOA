@@ -1,0 +1,51 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+rule_files:
+  - /etc/prometheus/alert_rules.yml
+
+scrape_configs:
+  - job_name: gateway-coordinator
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["gateway:8000"]
+        labels:
+          component: coordinator
+
+  - job_name: notebook-shard
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["notebook:8000"]
+        labels:
+          component: shard
+
+  - job_name: tag-shard
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["tag:8000"]
+        labels:
+          component: shard
+
+  - job_name: auth-worker
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["auth:8000"]
+        labels:
+          component: worker
+
+  - job_name: discovery-worker
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["discovery:8000"]
+        labels:
+          component: worker
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

@@ -1,0 +1,140 @@
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: notebook-keycloak-lab5
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HTTP_RELATIVE_PATH: /
+      KC_HOSTNAME: localhost
+      KC_HOSTNAME_PORT: 8081
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./keycloak/realm-notebook.json:/opt/keycloak/data/import/realm-notebook.json:ro
+    networks:
+      - notebook-net-lab5
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: notebook-rabbitmq-lab5
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - notebook-net-lab5
+
+  discovery:
+    build: C:/Users/Nadia/Desktop/СОА/лаб3/services/discovery
+    environment:
+      SERVICE_NAME: discovery-service
+      DISCOVERY_TTL: "45"
+    ports:
+      - "8500:8000"
+    networks:
+      - notebook-net-lab5
+
+  auth:
+    build: C:/Users/Nadia/Desktop/СОА/лаб3/services/auth
+    environment:
+      SERVICE_NAME: auth-service
+      JWT_SECRET: soa-lab5-secret
+      DISCOVERY_URL: http://discovery:8000
+      SERVICE_BASE_URL: http://auth:8000
+    depends_on:
+      - discovery
+    networks:
+      - notebook-net-lab5
+
+  notebook:
+    build: C:/Users/Nadia/Desktop/СОА/лаб3/services/notebook
+    environment:
+      SERVICE_NAME: notebook-service
+      AUTH_URL: http://auth:8000
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      EVENTS_EXCHANGE: notebook.events
+      NOTE_EVENTS_KEY: note.changed
+      NOTE_DLQ: notebook.note-events.dlq
+      NOTE_DLX: notebook.events.dlx
+      NOTE_DLQ_KEY: note.changed.dlq
+      NOTE_SUCCESS_QUEUE: notebook.saga-success
+      SAGA_TIMEOUT_SEC: "8"
+      DISCOVERY_URL: http://discovery:8000
+      SERVICE_BASE_URL: http://notebook:8000
+      DB_PATH: /data/notebook.db
+    volumes:
+      - ./data/notebook:/data
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      auth:
+        condition: service_started
+      discovery:
+        condition: service_started
+    networks:
+      - notebook-net-lab5
+
+  tag:
+    build: C:/Users/Nadia/Desktop/СОА/лаб3/services/tag
+    environment:
+      SERVICE_NAME: tag-service
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      EVENTS_EXCHANGE: notebook.events
+      NOTE_EVENTS_KEY: note.changed
+      TAG_QUEUE: tag-service.note-events.v5
+      NOTE_DLQ: notebook.note-events.dlq
+      NOTE_DLX: notebook.events.dlx
+      NOTE_DLQ_KEY: note.changed.dlq
+      FORCE_CONSUMER_FAIL: "false"
+      DISCOVERY_URL: http://discovery:8000
+      SERVICE_BASE_URL: http://tag:8000
+      DB_PATH: /data/tag.db
+    volumes:
+      - ./data/tag:/data
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      discovery:
+        condition: service_started
+    networks:
+      - notebook-net-lab5
+
+  gateway:
+    build: ./services/gateway
+    ports:
+      - "8080:8000"
+    environment:
+      SERVICE_NAME: gateway-service
+      AUTH_URL: http://auth:8000
+      NOTEBOOK_URL: http://notebook:8000
+      TAG_URL: http://tag:8000
+      DISCOVERY_URL: http://discovery:8000
+      SERVICE_BASE_URL: http://gateway:8000
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_PUBLIC_URL: http://localhost:8081
+      KEYCLOAK_REALM: notebook
+      KEYCLOAK_CLIENT_ID: notebook-gateway
+      OAUTH_REDIRECT_URI: http://localhost:8080/oauth/callback
+      CORS_ORIGINS: https://cad.kpi.ua,http://cad.kpi.ua,https://www.cad.kpi.ua,http://localhost:8080,http://127.0.0.1:8080
+    depends_on:
+      - auth
+      - notebook
+      - tag
+      - discovery
+      - keycloak
+    networks:
+      - notebook-net-lab5
+
+networks:
+  notebook-net-lab5:
+    name: notebook-net-lab5
+    driver: bridge

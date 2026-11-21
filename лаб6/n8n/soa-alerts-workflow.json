@@ -1,0 +1,137 @@
+[
+  {
+    "name": "SOA Lab6 Alert to Incident",
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "soa-alerts",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "id": "webhook-1",
+        "name": "Alertmanager Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          260,
+          300
+        ],
+        "webhookId": "soa-alerts"
+      },
+      {
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "a1",
+                "name": "title",
+                "value": "={{($json.body?.alerts?.[0]?.labels?.alertname) || ($json.alerts?.[0]?.labels?.alertname) || 'SOA Alert'}}",
+                "type": "string"
+              },
+              {
+                "id": "a2",
+                "name": "severity",
+                "value": "={{($json.body?.alerts?.[0]?.labels?.severity) || ($json.alerts?.[0]?.labels?.severity) || 'warning'}}",
+                "type": "string"
+              },
+              {
+                "id": "a3",
+                "name": "description",
+                "value": "={{($json.body?.alerts?.[0]?.annotations?.description) || ($json.alerts?.[0]?.annotations?.description) || JSON.stringify($json)}}",
+                "type": "string"
+              },
+              {
+                "id": "a4",
+                "name": "source",
+                "value": "n8n",
+                "type": "string"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "set-1",
+        "name": "Normalize Alert",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          520,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "http://incident-sink:8000/tickets",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={\n  \"title\": \"{{$json.title}}\",\n  \"severity\": \"{{$json.severity}}\",\n  \"description\": \"{{$json.description}}\",\n  \"source\": \"n8n\"\n}",
+          "options": {}
+        },
+        "id": "http-1",
+        "name": "Create Incident Ticket",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          780,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}",
+          "options": {}
+        },
+        "id": "respond-1",
+        "name": "Respond",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.1,
+        "position": [
+          1040,
+          300
+        ]
+      }
+    ],
+    "connections": {
+      "Alertmanager Webhook": {
+        "main": [
+          [
+            {
+              "node": "Normalize Alert",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Normalize Alert": {
+        "main": [
+          [
+            {
+              "node": "Create Incident Ticket",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Create Incident Ticket": {
+        "main": [
+          [
+            {
+              "node": "Respond",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1"
+    },
+    "active": true
+  }
+]

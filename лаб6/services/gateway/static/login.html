@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <title>Lab5 – OAuth2 Login</title>
+  <style>
+    body { font-family: "Segoe UI", sans-serif; max-width: 820px; margin: 2.5rem auto; line-height: 1.45; color: #1f2937; }
+    .card { border: 1px solid #d1d5db; border-radius: 10px; padding: 1.25rem 1.5rem; background: #f8fafc; }
+    a.btn { display: inline-block; background: #1d4ed8; color: #fff; text-decoration: none; padding: .7rem 1.1rem; border-radius: 8px; }
+    code { background: #e5e7eb; padding: .1rem .35rem; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Лабораторна робота №5 – безпека API</h1>
+  <div class="card">
+    <p>OAuth 2.0 Authorization Code flow через <strong>Keycloak</strong> (OIDC).</p>
+    <p>Після входу gateway обміняє <code>code</code> на JWT і перевірить scopes.</p>
+    <p>Тестовий користувач Keycloak: <code>student / student</code></p>
+    <p><a class="btn" href="/oauth/login">Login with Keycloak</a></p>
+    <p>Для мінімального балу в Keycloak Admin можна додати Identity Provider
+      (Google / GitHub / Atlassian) – кнопка Login with … з’явиться на формі входу.</p>
+  </div>
+  <h3>Корисні посилання</h3>
+  <ul>
+    <li><a href="/api/security/info">/api/security/info</a></li>
+    <li><a href="/api/cors-check">/api/cors-check</a> (CORS для cad.kpi.ua)</li>
+    <li><a href="http://localhost:8081" target="_blank">Keycloak Admin</a> (admin / admin)</li>
+  </ul>
+</body>
+</html>
